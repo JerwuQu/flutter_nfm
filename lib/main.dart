@@ -430,8 +430,17 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       children: settings.actions
                               .mapIndexed<Widget>(
                                 (index, action) => ListTile(
-                                  title: Text(action.title,
-                                      style: const TextStyle(color: Colors.blue)),
+                                  title: Row(children: [
+                                    Expanded(
+                                        child: Text(action.title,
+                                            style: const TextStyle(color: Colors.blue))),
+                                    IconButton(
+                                      onPressed: () {
+                                        editActionDialog(index).then((_) => setState(() {}));
+                                      },
+                                      icon: const Icon(Icons.edit),
+                                    ),
+                                  ]),
                                   onTap: () {
                                     final url = nfm.authedEntryUrl(entry).toString();
                                     final args = shlex.split(action.command);
