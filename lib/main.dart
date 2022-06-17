@@ -11,6 +11,7 @@ import 'package:shlex/shlex.dart' as shlex;
 import 'nfm.dart';
 
 var settings = SettingManager();
+final GlobalKey<ScaffoldMessengerState> scaffoldKey = GlobalKey<ScaffoldMessengerState>();
 
 void main() async {
   await settings.load();
@@ -27,6 +28,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
+      scaffoldMessengerKey: scaffoldKey,
       home: const ConnectionListPage(),
     );
   }
@@ -34,27 +36,27 @@ class MyApp extends StatelessWidget {
 
 class EntryCommandAction {
   String title, command;
-  bool addToHistory, toastResult, copyResultToClipboard;
+  bool addToHistory, toastOutput, copyOutputToClipboard;
 
   EntryCommandAction()
       : title = '',
         command = '',
         addToHistory = true, // TODO: use
-        toastResult = false,
-        copyResultToClipboard = false;
+        toastOutput = false,
+        copyOutputToClipboard = false;
 
   EntryCommandAction.fromJson(Map<String, dynamic> json)
       : title = json['title'],
         command = json['command'],
         addToHistory = json['addToHistory'],
-        toastResult = json['toastResult'],
-        copyResultToClipboard = json['clipboardResult'];
+        toastOutput = json['toastOutput'],
+        copyOutputToClipboard = json['clipboardOutput'];
   toJson() => {
         'title': title,
         'command': command,
         'addToHistory': addToHistory,
-        'toastResult': toastResult,
-        'clipboardResult': copyResultToClipboard,
+        'toastOutput': toastOutput,
+        'clipboardOutput': copyOutputToClipboard,
       };
 }
 
@@ -255,78 +257,187 @@ class _ConnectionPageState extends State<ConnectionPage> {
     );
   }
 
+  Future editActionDialog([int? index]) async {
+    EntryCommandAction? action = index == null
+        ? EntryCommandAction()
+        : EntryCommandAction.fromJson(settings.actions[index].toJson());
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(builder: (context, setState) {
+          return Dialog(
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 500),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      initialValue: action.title,
+                      onChanged: (val) => setState(() => action.title = val),
+                      decoration: const InputDecoration(labelText: 'Title'),
+                    ),
+                    TextFormField(
+                      initialValue: action.command,
+                      onChanged: (val) => setState(() => action.command = val),
+                      decoration: const InputDecoration(
+                        labelText: 'Command',
+                        hintText: 'mpv --fs \$URL',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    CheckboxListTile(
+                      title: const Text('Add to history'),
+                      value: action.addToHistory,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      onChanged: (val) => setState(() => action.addToHistory = val ?? false),
+                    ),
+                    CheckboxListTile(
+                      title: const Text('Toast output'),
+                      value: action.toastOutput,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      onChanged: (val) => setState(() => action.toastOutput = val ?? false),
+                    ),
+                    CheckboxListTile(
+                      title: const Text('Copy output to clipboard'),
+                      value: action.copyOutputToClipboard,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      onChanged: (val) =>
+                          setState(() => action.copyOutputToClipboard = val ?? false),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: <Widget>[
+                              TextButton(
+                                style: elevatedButtonStyle(context),
+                                onPressed: () {
+                                  if (action.title.isEmpty || action.command.isEmpty) {
+                                    showError(context, 'Invalid action',
+                                        'Title and Command are required');
+                                    return;
+                                  }
+                                  setState(() {
+                                    if (index == null) {
+                                      settings.actions.add(action);
+                                    } else {
+                                      settings.actions[index] = action;
+                                    }
+                                    settings.save();
+                                    Navigator.of(context).pop();
+                                  });
+                                },
+                                child: const Text('Save'),
+                              ),
+                            ] +
+                            (index == null
+                                ? []
+                                : [
+                                    const SizedBox(width: 8),
+                                    TextButton(
+                                      style: elevatedButtonStyle(context, color: Colors.red),
+                                      onPressed: () async {
+                                        if (await confirm(context)) {
+                                          setState(() {
+                                            settings.actions.removeAt(index);
+                                            settings.save();
+                                            Navigator.of(context).pop();
+                                          });
+                                        }
+                                      },
+                                      child: const Text('Delete'),
+                                    ),
+                                  ])),
+                  ],
+                ),
+              ),
+            ),
+          );
+        });
+      },
+    );
+  }
+
   Future actionDialog(NfmEntry entry) async {
     await showDialog(
       context: context,
       builder: (BuildContext context) {
-        return Dialog(
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 500),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListView(
-                    shrinkWrap: true,
-                    children: [
-                          for (final action in settings.actions)
+        return StatefulBuilder(builder: (context, setState) {
+          return Dialog(
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 500),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListView(
+                      shrinkWrap: true,
+                      children: settings.actions
+                              .mapIndexed<Widget>(
+                                (index, action) => ListTile(
+                                  title: Text(action.title,
+                                      style: const TextStyle(color: Colors.blue)),
+                                  onTap: () {
+                                    final url = nfm.authedEntryUrl(entry).toString();
+                                    final args = shlex.split(action.command);
+                                    args.forEachIndexed((i, str) {
+                                      if (str == '\$URL') {
+                                        args[i] = url;
+                                      }
+                                    });
+                                    Process.run(args[0], args.slice(1), runInShell: true).then((r) {
+                                      if (r.exitCode != 0) {
+                                        showError(context, "Process returned non-zero", r.stdout);
+                                        return;
+                                      }
+                                      if (action.toastOutput) {
+                                        scaffoldKey.currentState
+                                            ?.showSnackBar(SnackBar(content: Text(r.stdout)));
+                                      }
+                                      if (action.copyOutputToClipboard) {
+                                        Clipboard.setData(ClipboardData(text: r.stdout));
+                                        if (!action.toastOutput) {
+                                          scaffoldKey.currentState?.showSnackBar(const SnackBar(
+                                              content: Text('Result copied to clipboard')));
+                                        }
+                                      }
+                                      if (!action.toastOutput && !action.copyOutputToClipboard) {
+                                        scaffoldKey.currentState?.showSnackBar(const SnackBar(
+                                            content: Text('Process exited successfully')));
+                                      }
+                                    });
+                                    Navigator.of(context).pop();
+                                  },
+                                  onLongPress: () {
+                                    editActionDialog(index).then((_) => setState(() {}));
+                                  },
+                                ),
+                              )
+                              .toList() +
+                          [
                             ListTile(
-                              title: Text(action.title),
+                              title: const Text('Copy URL to clipboard'),
                               onTap: () {
-                                final url = nfm.authedEntryUrl(entry).toString();
-                                final args = shlex.split(action.command);
-                                args.forEachIndexed((i, str) {
-                                  if (str == '\$URL') {
-                                    args[i] = url;
-                                  }
-                                });
-                                Process.run(args[0], args.slice(1), runInShell: true).then((r) {
-                                  if (r.exitCode != 0) {
-                                    showError(context, "Process returned non-zero", r.stdout);
-                                    return;
-                                  }
-                                  if (action.toastResult) {
-                                    ScaffoldMessenger.of(context)
-                                        .showSnackBar(SnackBar(content: Text(r.stdout)));
-                                  }
-                                  if (action.copyResultToClipboard) {
-                                    Clipboard.setData(ClipboardData(text: r.stdout));
-                                    if (!action.toastResult) {
-                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                                          content: Text('Result copied to clipboard')));
-                                    }
-                                  }
-                                });
+                                Clipboard.setData(
+                                    ClipboardData(text: nfm.authedEntryUrl(entry).toString()));
+                                scaffoldKey.currentState?.showSnackBar(
+                                    const SnackBar(content: Text('URL copied to clipboard')));
                                 Navigator.of(context).pop();
                               },
-                              onLongPress: () {
-                                // TODO: edit/delete
+                            ),
+                            ListTile(
+                              title: const Text('Add action'),
+                              onTap: () {
+                                editActionDialog(null).then((_) => setState(() {}));
                               },
-                            )
-                        ] +
-                        // TODO: separate user-made from built-in
-                        [
-                          ListTile(
-                            title: const Text('Copy URL to clipboard'),
-                            onTap: () {
-                              Clipboard.setData(
-                                  ClipboardData(text: nfm.authedEntryUrl(entry).toString()));
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('URL copied to clipboard')));
-                              Navigator.of(context).pop();
-                            },
-                          ),
-                          ListTile(
-                            title: const Text('Add action'),
-                            onTap: () {
-                              // TODO
-                            },
-                          ),
-                          // TODO: add to history & remove from history
-                        ]),
-              ],
+                            ),
+                            // TODO: add to history & remove from history
+                          ]),
+                ],
+              ),
             ),
-          ),
-        );
+          );
+        });
       },
     );
   }
@@ -343,7 +454,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
           );
         }
         return SplitView(
-          title: Text('Current dir'), // TODO
+          title: const Text('Current dir'), // TODO
           drawer: ReorderableListView(
             onReorder: (oldIndex, newIndex) {
               if (oldIndex < newIndex) {
