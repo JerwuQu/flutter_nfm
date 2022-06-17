@@ -34,6 +34,51 @@ class MyApp extends StatelessWidget {
   }
 }
 
+class ConnectionInfo {
+  String url, username, password;
+  List<NfmEntry> bookmarks;
+  late Set<String> _bookmarkUris;
+
+  ConnectionInfo.empty()
+      : url = '',
+        username = '',
+        password = '',
+        bookmarks = [],
+        _bookmarkUris = {};
+  ConnectionInfo.copy(ConnectionInfo source)
+      : url = source.url,
+        username = source.username,
+        password = source.password,
+        bookmarks = source.bookmarks,
+        _bookmarkUris = source.bookmarks.map<String>((b) => b.uriPath).toSet();
+  ConnectionInfo.fromJson(Map<String, dynamic> json)
+      : url = json['url'],
+        username = json['username'],
+        password = json['password'],
+        bookmarks =
+            (json['bookmarks'] as List<dynamic>).map((e) => NfmEntry.fromBookmarkJson(e)).toList() {
+    _bookmarkUris = bookmarks.map<String>((b) => b.uriPath).toSet();
+  }
+  toJson() => {
+        'url': url,
+        'username': username,
+        'password': password,
+        'bookmarks': bookmarks.map((e) => e.toBookmarkJson()).toList(),
+      };
+
+  bool isBookmarked(NfmEntry entry) => _bookmarkUris.contains(entry.uriPath);
+  void toggleBookmark(NfmEntry entry) {
+    if (isBookmarked(entry)) {
+      bookmarks.removeWhere((e) => e.uriPath == entry.uriPath);
+      _bookmarkUris.remove(entry.uriPath);
+    } else {
+      bookmarks.add(entry.toBookmark());
+      _bookmarkUris.add(entry.uriPath);
+    }
+    settings.save();
+  }
+}
+
 class EntryCommandAction {
   String title, command;
   bool addToHistory, toastOutput, copyOutputToClipboard;
@@ -237,13 +282,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
   @override
   void initState() {
     super.initState();
-    nfm = Nfm(widget.conn);
+    nfm = Nfm(widget.conn.url, widget.conn.username, widget.conn.password);
     entries = nfm.fetch();
   }
 
-  Widget entryRow(NfmEntry entry, [bool bookmarked = false]) {
+  Widget entryRow(NfmEntry entry) {
     return Row(
-      children: (bookmarked
+      children: (widget.conn.isBookmarked(entry)
               ? <Widget>[
                   const Icon(Icons.star, color: Colors.orange),
                   const SizedBox(width: 6),
@@ -471,17 +516,14 @@ class _ConnectionPageState extends State<ConnectionPage> {
               for (final bookmark in widget.conn.bookmarks)
                 ListTile(
                   key: Key(bookmark.uriPath),
-                  title: entryRow(bookmark, true),
+                  title: entryRow(bookmark),
                   onTap: () {
                     setState(() {
                       entries = nfm.fetch(bookmark);
                     });
                   },
                   onLongPress: () {
-                    setState(() {
-                      widget.conn.bookmarks.remove(bookmark);
-                      settings.save();
-                    });
+                    setState(() => widget.conn.toggleBookmark(bookmark));
                   },
                 ),
             ],
@@ -491,7 +533,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
             children: [
               for (final entry in snapshot.data!)
                 ListTile(
-                  title: entryRow(entry), // TODO: show if bookmarked (URI set?)
+                  title: entryRow(entry),
                   onTap: () {
                     if (entry.type == NfmEntryType.dir) {
                       setState(() {
@@ -503,10 +545,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                   },
                   onLongPress: (entry.type == NfmEntryType.dir)
                       ? () {
-                          setState(() {
-                            widget.conn.bookmarks.add(entry.toBookmark());
-                            settings.save();
-                          });
+                          setState(() => widget.conn.toggleBookmark(entry));
                         }
                       : null,
                 )

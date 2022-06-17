@@ -3,35 +3,6 @@ import 'dart:convert';
 import 'package:http/http.dart';
 import 'package:http/http.dart' as http;
 
-class ConnectionInfo {
-  String url, username, password;
-  List<NfmEntry> bookmarks;
-
-  ConnectionInfo.empty()
-      : url = '',
-        username = '',
-        password = '',
-        bookmarks = [];
-  ConnectionInfo.copy(ConnectionInfo source)
-      : url = source.url,
-        username = source.username,
-        password = source.password,
-        bookmarks = source.bookmarks;
-
-  ConnectionInfo.fromJson(Map<String, dynamic> json)
-      : url = json['url'],
-        username = json['username'],
-        password = json['password'],
-        bookmarks =
-            (json['bookmarks'] as List<dynamic>).map((e) => NfmEntry.fromBookmarkJson(e)).toList();
-  toJson() => {
-        'url': url,
-        'username': username,
-        'password': password,
-        'bookmarks': bookmarks.map((e) => e.toBookmarkJson()).toList(),
-      };
-}
-
 enum NfmEntryType {
   file,
   dir,
@@ -87,18 +58,16 @@ String removePathSegment(String uri) {
 }
 
 class Nfm {
-  final ConnectionInfo conn;
+  final Uri baseUri;
 
-  Nfm(this.conn);
+  Nfm(String baseUrl, String username, String password)
+      : baseUri = Uri.parse(baseUrl).replace(userInfo: _authUserInfo(username, password));
 
-  String? _authUserInfo() {
-    return conn.username.isNotEmpty || conn.password.isNotEmpty
-        ? '${conn.username}:${conn.password}'
-        : null;
+  static String? _authUserInfo(String username, String password) {
+    return username.isNotEmpty || password.isNotEmpty ? '$username:$password' : null;
   }
 
-  Uri authedEntryUrl(NfmEntry entry) =>
-      entry.toUri(Uri.parse(conn.url).replace(userInfo: _authUserInfo()));
+  Uri authedEntryUrl(NfmEntry entry) => entry.toUri(baseUri);
 
   Future<List<NfmEntry>> fetch([NfmEntry? entry]) async {
     if (entry != null && entry.type != NfmEntryType.dir) {
