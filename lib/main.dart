@@ -38,25 +38,24 @@ class ConnectionInfo {
   String url, username, password;
   List<NfmEntry> bookmarks;
   late Set<String> _bookmarkUris;
+  Set<String> history;
 
   ConnectionInfo.empty()
       : url = '',
         username = '',
         password = '',
         bookmarks = [],
-        _bookmarkUris = {};
-  ConnectionInfo.copy(ConnectionInfo source)
-      : url = source.url,
-        username = source.username,
-        password = source.password,
-        bookmarks = source.bookmarks,
-        _bookmarkUris = source.bookmarks.map<String>((b) => b.uriPath).toSet();
+        _bookmarkUris = {},
+        history = {};
   ConnectionInfo.fromJson(Map<String, dynamic> json)
       : url = json['url'],
         username = json['username'],
         password = json['password'],
-        bookmarks =
-            (json['bookmarks'] as List<dynamic>).map((e) => NfmEntry.fromBookmarkJson(e)).toList() {
+        bookmarks = ((json['bookmarks'] ?? []) as List<dynamic>)
+            .map((e) => NfmEntry.fromBookmarkJson(e))
+            .toList(),
+        history =
+            ((json['history'] ?? []) as List<dynamic>).map<String>((e) => e as String).toSet() {
     _bookmarkUris = bookmarks.map<String>((b) => b.uriPath).toSet();
   }
   toJson() => {
@@ -64,6 +63,7 @@ class ConnectionInfo {
         'username': username,
         'password': password,
         'bookmarks': bookmarks.map((e) => e.toBookmarkJson()).toList(),
+        'history': history.toList(),
       };
 
   bool isBookmarked(NfmEntry entry) => _bookmarkUris.contains(entry.uriPath);
@@ -77,6 +77,17 @@ class ConnectionInfo {
     }
     settings.save();
   }
+
+  bool isInHistory(NfmEntry entry) => history.contains(entry.uriPath);
+  void addToHistory(NfmEntry entry) {
+    history.add(entry.uriPath);
+    settings.save();
+  }
+
+  void removeFromHistory(NfmEntry entry) {
+    history.remove(entry.uriPath);
+    settings.save();
+  }
 }
 
 class EntryCommandAction {
@@ -86,7 +97,7 @@ class EntryCommandAction {
   EntryCommandAction()
       : title = '',
         command = '',
-        addToHistory = true, // TODO: use
+        addToHistory = true,
         toastOutput = false,
         copyOutputToClipboard = false;
 
@@ -121,8 +132,6 @@ class SettingManager {
     final actionsJson = jsonDecode(prefs.getString('actions') ?? '[]');
     actions =
         actionsJson.map<EntryCommandAction>((json) => EntryCommandAction.fromJson(json)).toList();
-
-    // TODO: List<String> history? (loaded as Set)
   }
 
   Future save() async {
@@ -145,8 +154,9 @@ class ConnectionListPage extends StatefulWidget {
 
 class ConnectionListPageState extends State<ConnectionListPage> {
   Future editConnection([int? index]) async {
-    ConnectionInfo conn =
-        index == null ? ConnectionInfo.empty() : ConnectionInfo.copy(settings.connections[index]);
+    ConnectionInfo conn = index == null
+        ? ConnectionInfo.empty()
+        : ConnectionInfo.fromJson(settings.connections[index].toJson());
     await showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -451,6 +461,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
                                             content: Text('Process exited successfully')));
                                       }
                                     });
+                                    if (action.addToHistory) {
+                                      setState(() => widget.conn.addToHistory(entry));
+                                    }
                                     Navigator.of(context).pop();
                                   },
                                   onLongPress: () {
@@ -476,8 +489,30 @@ class _ConnectionPageState extends State<ConnectionPage> {
                                 editActionDialog(null).then((_) => setState(() {}));
                               },
                             ),
-                            // TODO: add to history & remove from history
-                          ]),
+                          ] +
+                          (widget.conn.isInHistory(entry)
+                              ? [
+                                  ListTile(
+                                    title: const Text('Remove from history'),
+                                    onTap: () {
+                                      setState(() {
+                                        widget.conn.removeFromHistory(entry);
+                                        Navigator.of(context).pop();
+                                      });
+                                    },
+                                  )
+                                ]
+                              : [
+                                  ListTile(
+                                    title: const Text('Add to history'),
+                                    onTap: () {
+                                      setState(() {
+                                        widget.conn.addToHistory(entry);
+                                        Navigator.of(context).pop();
+                                      });
+                                    },
+                                  )
+                                ])),
                 ],
               ),
             ),
@@ -534,13 +569,14 @@ class _ConnectionPageState extends State<ConnectionPage> {
               for (final entry in snapshot.data!)
                 ListTile(
                   title: entryRow(entry),
+                  tileColor: widget.conn.isInHistory(entry) ? Colors.green : null,
                   onTap: () {
                     if (entry.type == NfmEntryType.dir) {
                       setState(() {
                         entries = nfm.fetch(entry);
                       });
                     } else {
-                      actionDialog(entry);
+                      actionDialog(entry).then((_) => setState(() {}));
                     }
                   },
                   onLongPress: (entry.type == NfmEntryType.dir)
