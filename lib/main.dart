@@ -1,11 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
-
 import 'package:collection/collection.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:jwq_utils/jwq_utils.dart';
+import 'package:shlex/shlex.dart' as shlex;
 
 import 'nfm.dart';
 
@@ -32,20 +33,26 @@ class MyApp extends StatelessWidget {
 }
 
 class EntryCommandAction {
-  String command;
-  bool toastResult, copyResultToClipboard;
+  String title, command;
+  bool addToHistory, toastResult, copyResultToClipboard;
 
   EntryCommandAction()
-      : command = '',
+      : title = '',
+        command = '',
+        addToHistory = true, // TODO: use
         toastResult = false,
         copyResultToClipboard = false;
 
   EntryCommandAction.fromJson(Map<String, dynamic> json)
-      : command = json['command'],
+      : title = json['title'],
+        command = json['command'],
+        addToHistory = json['addToHistory'],
         toastResult = json['toastResult'],
         copyResultToClipboard = json['clipboardResult'];
   toJson() => {
+        'title': title,
         'command': command,
+        'addToHistory': addToHistory,
         'toastResult': toastResult,
         'clipboardResult': copyResultToClipboard,
       };
@@ -258,17 +265,64 @@ class _ConnectionPageState extends State<ConnectionPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                ListView(shrinkWrap: true, children: [
-                  ListTile(
-                    title: const Text('Copy URL to clipboard'),
-                    onTap: () {
-                      Clipboard.setData(ClipboardData(text: nfm.authedEntryUrl(entry).toString()));
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(const SnackBar(content: Text('URL copied to clipboard')));
-                      Navigator.of(context).pop();
-                    },
-                  )
-                ]),
+                ListView(
+                    shrinkWrap: true,
+                    children: [
+                          for (final action in settings.actions)
+                            ListTile(
+                              title: Text(action.title),
+                              onTap: () {
+                                final url = nfm.authedEntryUrl(entry).toString();
+                                final args = shlex.split(action.command);
+                                args.forEachIndexed((i, str) {
+                                  if (str == '\$URL') {
+                                    args[i] = url;
+                                  }
+                                });
+                                Process.run(args[0], args.slice(1), runInShell: true).then((r) {
+                                  if (r.exitCode != 0) {
+                                    showError(context, "Process returned non-zero", r.stdout);
+                                    return;
+                                  }
+                                  if (action.toastResult) {
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(SnackBar(content: Text(r.stdout)));
+                                  }
+                                  if (action.copyResultToClipboard) {
+                                    Clipboard.setData(ClipboardData(text: r.stdout));
+                                    if (!action.toastResult) {
+                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                                          content: Text('Result copied to clipboard')));
+                                    }
+                                  }
+                                });
+                                Navigator.of(context).pop();
+                              },
+                              onLongPress: () {
+                                // TODO: edit/delete
+                              },
+                            )
+                        ] +
+                        // TODO: separate user-made from built-in
+                        [
+                          ListTile(
+                            title: const Text('Copy URL to clipboard'),
+                            onTap: () {
+                              Clipboard.setData(
+                                  ClipboardData(text: nfm.authedEntryUrl(entry).toString()));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('URL copied to clipboard')));
+                              Navigator.of(context).pop();
+                            },
+                          ),
+                          ListTile(
+                            title: const Text('Add action'),
+                            onTap: () {
+                              // TODO
+                            },
+                          ),
+                          // TODO: add to history & remove from history
+                        ]),
               ],
             ),
           ),
@@ -288,7 +342,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
             body: const Center(child: CircularProgressIndicator()),
           );
         }
-        // TODO: fix resizing breaking it
         return SplitView(
           title: Text('Current dir'), // TODO
           drawer: ReorderableListView(
@@ -327,7 +380,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
             children: [
               for (final entry in snapshot.data!)
                 ListTile(
-                  title: entryRow(entry), // TODO: show if bookmarked
+                  title: entryRow(entry), // TODO: show if bookmarked (URI set?)
                   onTap: () {
                     if (entry.type == NfmEntryType.dir) {
                       setState(() {

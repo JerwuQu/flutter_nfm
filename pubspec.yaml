@@ -39,6 +39,7 @@ dependencies:
     path: ../flutter_jwq_utils
   collection: ^1.16.0
   http: ^0.13.4
+  shlex: ^2.0.2
 
 dev_dependencies:
   flutter_test:

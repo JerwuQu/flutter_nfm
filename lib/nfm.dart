@@ -38,11 +38,14 @@ enum NfmEntryType {
 }
 
 class NfmEntry {
-  NfmEntryType type;
-  String title;
-  String uriPath; // path after base path
+  static String _normalizePath(NfmEntryType type, String path) =>
+      noStartingSlash(type == NfmEntryType.dir ? endingSlash(path) : path);
 
-  NfmEntry(this.type, this.title, this.uriPath);
+  final NfmEntryType type;
+  final String title;
+  final String uriPath; // path after base path
+
+  NfmEntry(this.type, this.title, String uriPath) : uriPath = _normalizePath(type, uriPath);
 
   NfmEntry.fromBookmarkJson(Map<String, dynamic> json)
       : type = NfmEntryType.dir,
@@ -60,8 +63,11 @@ class NfmEntry {
     if (type != NfmEntryType.dir) {
       throw NfmException('Not a directory');
     }
-    return NfmEntry(NfmEntryType.dir, endingSlash(uriPath), uriPath);
+    return NfmEntry(type, uriPath, uriPath);
   }
+
+  Uri toUri(Uri baseUri) =>
+      baseUri.replace(path: _normalizePath(type, joinPaths(baseUri.path, uriPath)));
 }
 
 class NfmException implements Exception {
@@ -70,17 +76,9 @@ class NfmException implements Exception {
   NfmException(this.message);
 }
 
-String endingSlash(String uri) {
-  return uri.endsWith('/') ? uri : '$uri/';
-}
-
-String noStartingSlash(String uri) {
-  return uri.startsWith('/') ? uri.substring(1) : uri;
-}
-
-String joinPaths(String a, String b) {
-  return endingSlash(a) + noStartingSlash(b);
-}
+String endingSlash(String uri) => uri.endsWith('/') ? uri : '$uri/';
+String noStartingSlash(String uri) => uri.startsWith('/') ? uri.substring(1) : uri;
+String joinPaths(String a, String b) => endingSlash(a) + noStartingSlash(b);
 
 String removePathSegment(String uri) {
   uri = uri.endsWith('/') ? uri.substring(0, uri.length - 1) : uri;
@@ -99,19 +97,8 @@ class Nfm {
         : null;
   }
 
-  Uri entryUrl(NfmEntry? entry) {
-    final baseUrl = Uri.parse(conn.url);
-    if (entry == null) {
-      return baseUrl.replace(path: endingSlash(baseUrl.path));
-    }
-    return entry.type == NfmEntryType.dir
-        ? baseUrl.replace(path: endingSlash(joinPaths(baseUrl.path, entry.uriPath)))
-        : baseUrl.replace(path: joinPaths(baseUrl.path, entry.uriPath));
-  }
-
-  Uri authedEntryUrl(NfmEntry? entry) {
-    return entryUrl(entry).replace(userInfo: _authUserInfo());
-  }
+  Uri authedEntryUrl(NfmEntry entry) =>
+      entry.toUri(Uri.parse(conn.url).replace(userInfo: _authUserInfo()));
 
   Future<List<NfmEntry>> fetch([NfmEntry? entry]) async {
     if (entry != null && entry.type != NfmEntryType.dir) {
@@ -123,7 +110,10 @@ class Nfm {
     };
     Response resp;
     try {
-      resp = await http.get(authedEntryUrl(entry), headers: headers);
+      resp = await http.get(
+        authedEntryUrl(entry ?? NfmEntry(NfmEntryType.dir, '', '')),
+        headers: headers,
+      );
     } catch (e) {
       throw NfmException('Failed to connect to host');
     }
@@ -139,7 +129,7 @@ class Nfm {
         return NfmEntry(
           e['type'] == 'directory' ? NfmEntryType.dir : NfmEntryType.file,
           e['name'],
-          entry == null ? e['name'] : noStartingSlash(joinPaths(entry.uriPath, e['name'])),
+          entry == null ? e['name'] : joinPaths(entry.uriPath, e['name']),
         );
       }).toList();
       if (entry?.uriPath.isEmpty ?? true) {
