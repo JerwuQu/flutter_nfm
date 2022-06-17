@@ -117,9 +117,11 @@ packages:
   jwq_utils:
     dependency: "direct main"
     description:
-      path: "../flutter_jwq_utils"
-      relative: true
-    source: path
+      path: "."
+      ref: HEAD
+      resolved-ref: "3574420a190b2cddc8075b0b21b982ee6420e2d9"
+      url: "https://github.com/JerwuQu/flutter_jwq_utils.git"
+    source: git
     version: "0.0.1"
   lints:
     dependency: transitive

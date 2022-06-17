@@ -36,7 +36,7 @@ dependencies:
   cupertino_icons: ^1.0.2
   shared_preferences: ^2.0.15
   jwq_utils:
-    path: ../flutter_jwq_utils
+    git: https://github.com/JerwuQu/flutter_jwq_utils.git
   collection: ^1.16.0
   http: ^0.13.4
   shlex: ^2.0.2
