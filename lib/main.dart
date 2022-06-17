@@ -287,6 +287,7 @@ class ConnectionPage extends StatefulWidget {
 
 class _ConnectionPageState extends State<ConnectionPage> {
   late Nfm nfm;
+  String entryUri = '/'; // TODO: make this into breadcrumbs instead
   late Future<List<NfmEntry>> entries;
 
   @override
@@ -543,7 +544,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
           );
         }
         return SplitView(
-          title: const Text('Current dir'), // TODO
+          title: Text(entryUri),
           drawer: ReorderableListView(
             onReorder: (oldIndex, newIndex) {
               if (oldIndex < newIndex) {
@@ -563,6 +564,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                   title: entryRow(bookmark),
                   onTap: () {
                     setState(() {
+                      entryUri = bookmark.uriPath;
                       entries = nfm.fetch(bookmark);
                     });
                   },
@@ -582,6 +584,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                   onTap: () {
                     if (entry.type == NfmEntryType.dir) {
                       setState(() {
+                        entryUri = entry.uriPath;
                         entries = nfm.fetch(entry);
                       });
                     } else {

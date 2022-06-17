@@ -10,7 +10,7 @@ enum NfmEntryType {
 
 class NfmEntry {
   static String _normalizePath(NfmEntryType type, String path) =>
-      noStartingSlash(type == NfmEntryType.dir ? endingSlash(path) : path);
+      type == NfmEntryType.dir ? endingSlash(noStartingSlash(path)) : noStartingSlash(path);
 
   final NfmEntryType type;
   final String title;
@@ -21,7 +21,7 @@ class NfmEntry {
   NfmEntry.fromBookmarkJson(Map<String, dynamic> json)
       : type = NfmEntryType.dir,
         title = endingSlash(json['uri']),
-        uriPath = json['uri'];
+        uriPath = _normalizePath(NfmEntryType.dir, json['uri']);
 
   toBookmarkJson() {
     if (type != NfmEntryType.dir) {
