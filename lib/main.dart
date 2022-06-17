@@ -3,12 +3,16 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import 'package:collection/collection.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:jwq_utils/jwq_utils.dart';
 
 import 'nfm.dart';
 
-void main() {
+var settings = SettingManager();
+
+void main() async {
+  await settings.load();
   runApp(const MyApp());
 }
 
@@ -27,6 +31,57 @@ class MyApp extends StatelessWidget {
   }
 }
 
+class EntryCommandAction {
+  String command;
+  bool toastResult, copyResultToClipboard;
+
+  EntryCommandAction()
+      : command = '',
+        toastResult = false,
+        copyResultToClipboard = false;
+
+  EntryCommandAction.fromJson(Map<String, dynamic> json)
+      : command = json['command'],
+        toastResult = json['toastResult'],
+        copyResultToClipboard = json['clipboardResult'];
+  toJson() => {
+        'command': command,
+        'toastResult': toastResult,
+        'clipboardResult': copyResultToClipboard,
+      };
+}
+
+class SettingManager {
+  // TODO: support storing connections encrypted
+
+  late List<ConnectionInfo> connections;
+  late List<EntryCommandAction> actions;
+
+  Future load() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final connectionsJson = jsonDecode(prefs.getString('connections') ?? '[]');
+    connections =
+        connectionsJson.map<ConnectionInfo>((json) => ConnectionInfo.fromJson(json)).toList();
+
+    final actionsJson = jsonDecode(prefs.getString('actions') ?? '[]');
+    actions =
+        actionsJson.map<EntryCommandAction>((json) => EntryCommandAction.fromJson(json)).toList();
+
+    // TODO: List<String> history? (loaded as Set)
+  }
+
+  Future save() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final connectionsJson = jsonEncode(connections.map((c) => c.toJson()).toList());
+    await prefs.setString('connections', connectionsJson);
+
+    final actionsJson = jsonEncode(actions.map((a) => a.toJson()).toList());
+    await prefs.setString('actions', actionsJson);
+  }
+}
+
 class ConnectionListPage extends StatefulWidget {
   const ConnectionListPage({Key? key}) : super(key: key);
 
@@ -35,31 +90,9 @@ class ConnectionListPage extends StatefulWidget {
 }
 
 class ConnectionListPageState extends State<ConnectionListPage> {
-  late List<ConnectionInfo> connections;
-  late Future _loadPrefs;
-
-  ConnectionListPageState() : super() {
-    _loadPrefs = loadPrefs();
-  }
-
-  Future loadPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    final connectionsJson = jsonDecode(prefs.getString('connections') ?? '[]');
-    // TODO: List<String> history? (loaded as Set)
-    connections =
-        connectionsJson.map<ConnectionInfo>((json) => ConnectionInfo.fromJson(json)).toList();
-  }
-
-  Future savePrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    final connectionsJson = jsonEncode(connections.map((c) => c.toJson()).toList());
-    await prefs.setString('connections', connectionsJson);
-    // TODO: support storing connections encrypted
-  }
-
   Future editConnection([int? index]) async {
     ConnectionInfo conn =
-        index == null ? ConnectionInfo.empty() : ConnectionInfo.copy(connections[index]);
+        index == null ? ConnectionInfo.empty() : ConnectionInfo.copy(settings.connections[index]);
     await showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -99,11 +132,11 @@ class ConnectionListPageState extends State<ConnectionListPage> {
                             onPressed: () {
                               setState(() {
                                 if (index == null) {
-                                  connections.add(conn);
+                                  settings.connections.add(conn);
                                 } else {
-                                  connections[index] = conn;
+                                  settings.connections[index] = conn;
                                 }
-                                savePrefs();
+                                settings.save();
                               });
                               return Navigator.of(context).pop();
                             },
@@ -119,8 +152,8 @@ class ConnectionListPageState extends State<ConnectionListPage> {
                                   onPressed: () async {
                                     if (await confirm(context)) {
                                       setState(() {
-                                        connections.removeAt(index);
-                                        savePrefs();
+                                        settings.connections.removeAt(index);
+                                        settings.save();
                                       });
                                       Navigator.of(context).pop();
                                     }
@@ -140,52 +173,41 @@ class ConnectionListPageState extends State<ConnectionListPage> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder(
-      future: _loadPrefs,
-      builder: ((context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('Loading...')),
-            body: const Center(child: CircularProgressIndicator()),
-          );
-        }
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Connections'),
-          ),
-          body: ReorderableListView(
-            scrollController: AdjustableScrollController(100),
-            onReorder: (oldIndex, newIndex) {
-              if (oldIndex < newIndex) {
-                newIndex--;
-              }
-              setState(() {
-                final item = connections.removeAt(oldIndex);
-                connections.insert(newIndex, item);
-              });
-            },
-            children: connections
-                .mapIndexed<Widget>(
-                  (index, conn) => ListTile(
-                    title: Text(conn.username == '' ? conn.url : '${conn.username}@${conn.url}'),
-                    key: Key(conn.hashCode.toString()),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (ctx) => ConnectionPage(conn)),
-                      );
-                    },
-                    onLongPress: () => editConnection(index),
-                  ),
-                )
-                .toList(),
-          ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: () => editConnection(),
-            child: const Icon(Icons.add),
-          ),
-        );
-      }),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Connections'),
+      ),
+      body: ReorderableListView(
+        scrollController: AdjustableScrollController(100),
+        onReorder: (oldIndex, newIndex) {
+          if (oldIndex < newIndex) {
+            newIndex--;
+          }
+          setState(() {
+            final item = settings.connections.removeAt(oldIndex);
+            settings.connections.insert(newIndex, item);
+          });
+        },
+        children: settings.connections
+            .mapIndexed<Widget>(
+              (index, conn) => ListTile(
+                title: Text(conn.username == '' ? conn.url : '${conn.username}@${conn.url}'),
+                key: Key(conn.hashCode.toString()),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (ctx) => ConnectionPage(conn)),
+                  );
+                },
+                onLongPress: () => editConnection(index),
+              ),
+            )
+            .toList(),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => editConnection(),
+        child: const Icon(Icons.add),
+      ),
     );
   }
 }
@@ -226,6 +248,35 @@ class _ConnectionPageState extends State<ConnectionPage> {
     );
   }
 
+  Future actionDialog(NfmEntry entry) async {
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 500),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListView(shrinkWrap: true, children: [
+                  ListTile(
+                    title: const Text('Copy URL to clipboard'),
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: nfm.authedEntryUrl(entry).toString()));
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(const SnackBar(content: Text('URL copied to clipboard')));
+                      Navigator.of(context).pop();
+                    },
+                  )
+                ]),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<NfmEntry>>(
@@ -237,65 +288,66 @@ class _ConnectionPageState extends State<ConnectionPage> {
             body: const Center(child: CircularProgressIndicator()),
           );
         }
+        // TODO: fix resizing breaking it
         return SplitView(
           title: Text('Current dir'), // TODO
-          drawer: Drawer(
-            child: ReorderableListView(
-              onReorder: (oldIndex, newIndex) {
-                if (oldIndex < newIndex) {
-                  newIndex--;
-                }
-                setState(() {
-                  final item = widget.conn.bookmarks.removeAt(oldIndex);
-                  widget.conn.bookmarks.insert(newIndex, item);
-                });
-              },
-              scrollController: AdjustableScrollController(100),
-              children: [
-                for (final bookmark in widget.conn.bookmarks)
-                  ListTile(
-                    key: Key(bookmark.uriPath),
-                    title: entryRow(bookmark, true),
-                    onTap: () {
-                      setState(() {
-                        entries = nfm.fetch(bookmark);
-                      });
-                    },
-                    onLongPress: () {
-                      setState(() {
-                        widget.conn.bookmarks.remove(bookmark);
-                      });
-                    },
-                  ),
-              ],
-            ),
+          drawer: ReorderableListView(
+            onReorder: (oldIndex, newIndex) {
+              if (oldIndex < newIndex) {
+                newIndex--;
+              }
+              setState(() {
+                final item = widget.conn.bookmarks.removeAt(oldIndex);
+                widget.conn.bookmarks.insert(newIndex, item);
+                settings.save();
+              });
+            },
+            scrollController: AdjustableScrollController(100),
+            children: [
+              for (final bookmark in widget.conn.bookmarks)
+                ListTile(
+                  key: Key(bookmark.uriPath),
+                  title: entryRow(bookmark, true),
+                  onTap: () {
+                    setState(() {
+                      entries = nfm.fetch(bookmark);
+                    });
+                  },
+                  onLongPress: () {
+                    setState(() {
+                      widget.conn.bookmarks.remove(bookmark);
+                      settings.save();
+                    });
+                  },
+                ),
+            ],
           ),
           body: ListView(
             controller: AdjustableScrollController(100),
             children: [
               for (final entry in snapshot.data!)
                 ListTile(
-                  title: entryRow(entry), // TODO: show bookmarked
+                  title: entryRow(entry), // TODO: show if bookmarked
                   onTap: () {
                     if (entry.type == NfmEntryType.dir) {
                       setState(() {
                         entries = nfm.fetch(entry);
                       });
                     } else {
-                      // TODO: actions
+                      actionDialog(entry);
                     }
                   },
                   onLongPress: (entry.type == NfmEntryType.dir)
                       ? () {
                           setState(() {
                             widget.conn.bookmarks.add(entry.toBookmark());
-                            // TODO: savePrefs()
+                            settings.save();
                           });
                         }
                       : null,
                 )
             ],
-          ), // TODO
+          ),
         );
       },
     );

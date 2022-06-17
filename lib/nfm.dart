@@ -93,6 +93,12 @@ class Nfm {
 
   Nfm(this.conn);
 
+  String? _authUserInfo() {
+    return conn.username.isNotEmpty || conn.password.isNotEmpty
+        ? '${conn.username}:${conn.password}'
+        : null;
+  }
+
   Uri entryUrl(NfmEntry? entry) {
     final baseUrl = Uri.parse(conn.url);
     if (entry == null) {
@@ -103,6 +109,10 @@ class Nfm {
         : baseUrl.replace(path: joinPaths(baseUrl.path, entry.uriPath));
   }
 
+  Uri authedEntryUrl(NfmEntry? entry) {
+    return entryUrl(entry).replace(userInfo: _authUserInfo());
+  }
+
   Future<List<NfmEntry>> fetch([NfmEntry? entry]) async {
     if (entry != null && entry.type != NfmEntryType.dir) {
       throw NfmException('Not a directory');
@@ -111,13 +121,9 @@ class Nfm {
       'user-agent': 'nfm',
       'content-type': 'application/json',
     };
-    if (conn.username.isNotEmpty || conn.password.isNotEmpty) {
-      headers['authorization'] =
-          'Basic ${base64Encode(utf8.encode('${conn.username}:${conn.password}'))}';
-    }
     Response resp;
     try {
-      resp = await http.get(entryUrl(entry), headers: headers);
+      resp = await http.get(authedEntryUrl(entry), headers: headers);
     } catch (e) {
       throw NfmException('Failed to connect to host');
     }
