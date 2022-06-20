@@ -299,18 +299,26 @@ class _ConnectionPageState extends State<ConnectionPage> {
   }
 
   Widget entryRow(NfmEntry entry) {
+    final bookmarked = widget.conn.isBookmarked(entry);
+    List<Widget> bookmarkBtn = (entry.type == NfmEntryType.dir)
+        ? [
+            IconButton(
+              icon: bookmarked ? const Icon(Icons.star) : const Icon(Icons.star_outline),
+              color: bookmarked ? Colors.orange : Colors.grey,
+              onPressed: () {
+                setState(() => widget.conn.toggleBookmark(entry));
+              },
+            ),
+            const SizedBox(width: 6),
+          ]
+        : [];
     return Row(
-      children: (widget.conn.isBookmarked(entry)
-              ? <Widget>[
-                  const Icon(Icons.star, color: Colors.orange),
-                  const SizedBox(width: 6),
-                ]
-              : <Widget>[]) +
+      children: (bookmarkBtn +
           [
             Icon(entry.type == NfmEntryType.file ? Icons.file_copy : Icons.folder),
             const SizedBox(width: 6),
             Expanded(child: Text(entry.title)),
-          ],
+          ]),
     );
   }
 
@@ -571,9 +579,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       entries = nfm.fetch(bookmark);
                     });
                   },
-                  onLongPress: () {
-                    setState(() => widget.conn.toggleBookmark(bookmark));
-                  },
                 ),
             ],
           ),
@@ -594,11 +599,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       actionDialog(entry).then((_) => setState(() {}));
                     }
                   },
-                  onLongPress: (entry.type == NfmEntryType.dir)
-                      ? () {
-                          setState(() => widget.conn.toggleBookmark(entry));
-                        }
-                      : null,
                 )
             ],
           ),
