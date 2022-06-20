@@ -14,31 +14,31 @@ class NfmEntry {
 
   final NfmEntryType type;
   final String title;
-  final String uriPath; // path after base path
+  final String path; // path after base uri
 
-  NfmEntry(this.type, this.title, String uriPath) : uriPath = _normalizePath(type, uriPath);
+  NfmEntry(this.type, this.title, String path) : path = _normalizePath(type, path);
 
   NfmEntry.fromBookmarkJson(Map<String, dynamic> json)
       : type = NfmEntryType.dir,
-        title = endingSlash(json['uri']),
-        uriPath = _normalizePath(NfmEntryType.dir, json['uri']);
+        title = endingSlash(json['path']),
+        path = _normalizePath(NfmEntryType.dir, json['path']);
 
   toBookmarkJson() {
     if (type != NfmEntryType.dir) {
       throw NfmException('Not a directory');
     }
-    return {'uri': uriPath};
+    return {'path': path};
   }
 
   NfmEntry toBookmark() {
     if (type != NfmEntryType.dir) {
       throw NfmException('Not a directory');
     }
-    return NfmEntry(type, uriPath, uriPath);
+    return NfmEntry(type, path, path);
   }
 
   Uri toUri(Uri baseUri) =>
-      baseUri.replace(path: _normalizePath(type, joinPaths(baseUri.path, uriPath)));
+      baseUri.replace(path: _normalizePath(type, joinPaths(baseUri.path, path)));
 }
 
 class NfmException implements Exception {
@@ -98,13 +98,13 @@ class Nfm {
         return NfmEntry(
           e['type'] == 'directory' ? NfmEntryType.dir : NfmEntryType.file,
           e['name'],
-          entry == null ? e['name'] : joinPaths(entry.uriPath, e['name']),
+          entry == null ? e['name'] : joinPaths(entry.path, e['name']),
         );
       }).toList();
-      if (entry?.uriPath.isEmpty ?? true) {
+      if (entry?.path.isEmpty ?? true) {
         return entries;
       } else {
-        return [NfmEntry(NfmEntryType.dir, '..', removePathSegment(entry!.uriPath))] + entries;
+        return [NfmEntry(NfmEntryType.dir, '..', removePathSegment(entry!.path))] + entries;
       }
     } catch (e) {
       throw NfmException('Invalid response. Not a valid JSON index url?');

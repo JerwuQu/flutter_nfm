@@ -35,9 +35,10 @@ class MyApp extends StatelessWidget {
 }
 
 class ConnectionInfo {
+  // TODO: mark as favorite for auto-connect
   String url, username, password;
   List<NfmEntry> bookmarks;
-  late Set<String> _bookmarkUris;
+  late Set<String> _bookmarkPaths;
   Set<String> history;
 
   ConnectionInfo.empty()
@@ -45,7 +46,7 @@ class ConnectionInfo {
         username = '',
         password = '',
         bookmarks = [],
-        _bookmarkUris = {},
+        _bookmarkPaths = {},
         history = {};
   ConnectionInfo.fromJson(Map<String, dynamic> json)
       : url = json['url'],
@@ -56,7 +57,7 @@ class ConnectionInfo {
             .toList(),
         history =
             ((json['history'] ?? []) as List<dynamic>).map<String>((e) => e as String).toSet() {
-    _bookmarkUris = bookmarks.map<String>((b) => b.uriPath).toSet();
+    _bookmarkPaths = bookmarks.map<String>((b) => b.path).toSet();
   }
   toJson() => {
         'url': url,
@@ -66,26 +67,26 @@ class ConnectionInfo {
         'history': history.toList(),
       };
 
-  bool isBookmarked(NfmEntry entry) => _bookmarkUris.contains(entry.uriPath);
+  bool isBookmarked(NfmEntry entry) => _bookmarkPaths.contains(entry.path);
   void toggleBookmark(NfmEntry entry) {
     if (isBookmarked(entry)) {
-      bookmarks.removeWhere((e) => e.uriPath == entry.uriPath);
-      _bookmarkUris.remove(entry.uriPath);
+      bookmarks.removeWhere((e) => e.path == entry.path);
+      _bookmarkPaths.remove(entry.path);
     } else {
       bookmarks.add(entry.toBookmark());
-      _bookmarkUris.add(entry.uriPath);
+      _bookmarkPaths.add(entry.path);
     }
     settings.save();
   }
 
-  bool isInHistory(NfmEntry entry) => history.contains(entry.uriPath);
+  bool isInHistory(NfmEntry entry) => history.contains(entry.path);
   void addToHistory(NfmEntry entry) {
-    history.add(entry.uriPath);
+    history.add(entry.path);
     settings.save();
   }
 
   void removeFromHistory(NfmEntry entry) {
-    history.remove(entry.uriPath);
+    history.remove(entry.path);
     settings.save();
   }
 }
@@ -287,7 +288,7 @@ class ConnectionPage extends StatefulWidget {
 
 class _ConnectionPageState extends State<ConnectionPage> {
   late Nfm nfm;
-  String entryUri = '/'; // TODO: make this into breadcrumbs instead
+  String entryPath = '/'; // TODO: make this into breadcrumbs instead
   late Future<List<NfmEntry>> entries;
 
   @override
@@ -448,6 +449,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
                                     args.forEachIndexed((i, str) {
                                       if (str == '\$URL') {
                                         args[i] = url;
+                                      } else if (str == '\$PATH') {
+                                        args[i] = entry.path;
                                       }
                                     });
                                     Process.run(args[0], args.slice(1), runInShell: true).then((r) {
@@ -544,7 +547,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
           );
         }
         return SplitView(
-          title: Text(entryUri),
+          title: Text(entryPath),
           drawer: ReorderableListView(
             onReorder: (oldIndex, newIndex) {
               if (oldIndex < newIndex) {
@@ -560,11 +563,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
             children: [
               for (final bookmark in widget.conn.bookmarks)
                 ListTile(
-                  key: Key(bookmark.uriPath),
+                  key: Key(bookmark.path),
                   title: entryRow(bookmark),
                   onTap: () {
                     setState(() {
-                      entryUri = bookmark.uriPath;
+                      entryPath = bookmark.path;
                       entries = nfm.fetch(bookmark);
                     });
                   },
@@ -584,7 +587,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                   onTap: () {
                     if (entry.type == NfmEntryType.dir) {
                       setState(() {
-                        entryUri = entry.uriPath;
+                        entryPath = entry.path;
                         entries = nfm.fetch(entry);
                       });
                     } else {
