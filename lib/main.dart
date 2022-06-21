@@ -35,11 +35,11 @@ class MyApp extends StatelessWidget {
 }
 
 class ConnectionInfo {
-  // TODO: mark as favorite for auto-connect
   String url, username, password;
   List<NfmEntry> bookmarks;
   late Set<String> _bookmarkPaths;
   Set<String> history;
+  bool autoConnect;
 
   ConnectionInfo.empty()
       : url = '',
@@ -47,7 +47,8 @@ class ConnectionInfo {
         password = '',
         bookmarks = [],
         _bookmarkPaths = {},
-        history = {};
+        history = {},
+        autoConnect = false;
   ConnectionInfo.fromJson(Map<String, dynamic> json)
       : url = json['url'],
         username = json['username'],
@@ -56,7 +57,8 @@ class ConnectionInfo {
             .map((e) => NfmEntry.fromBookmarkJson(e))
             .toList(),
         history =
-            ((json['history'] ?? []) as List<dynamic>).map<String>((e) => e as String).toSet() {
+            ((json['history'] ?? []) as List<dynamic>).map<String>((e) => e as String).toSet(),
+        autoConnect = json['auto'] ?? false {
     _bookmarkPaths = bookmarks.map<String>((b) => b.path).toSet();
   }
   toJson() => {
@@ -65,6 +67,7 @@ class ConnectionInfo {
         'password': password,
         'bookmarks': bookmarks.map((e) => e.toBookmarkJson()).toList(),
         'history': history.toList(),
+        'auto': autoConnect,
       };
 
   bool isBookmarked(NfmEntry entry) => _bookmarkPaths.contains(entry.path);
@@ -154,6 +157,20 @@ class ConnectionListPage extends StatefulWidget {
 }
 
 class ConnectionListPageState extends State<ConnectionListPage> {
+  @override
+  void initState() {
+    super.initState();
+    final autoConn = settings.connections.firstWhereOrNull((c) => c.autoConnect);
+    if (autoConn != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (ctx) => ConnectionPage(autoConn)),
+        );
+      });
+    }
+  }
+
   Future editConnection([int? index]) async {
     ConnectionInfo conn = index == null
         ? ConnectionInfo.empty()
@@ -256,7 +273,25 @@ class ConnectionListPageState extends State<ConnectionListPage> {
         children: settings.connections
             .mapIndexed<Widget>(
               (index, conn) => ListTile(
-                title: Text(conn.username == '' ? conn.url : '${conn.username}@${conn.url}'),
+                title: Row(children: [
+                  IconButton(
+                    icon: conn.autoConnect
+                        ? const Icon(Icons.auto_awesome)
+                        : const Icon(Icons.auto_awesome_outlined),
+                    color: conn.autoConnect ? Colors.orange : Colors.grey,
+                    onPressed: () {
+                      setState(() {
+                        for (var c in settings.connections) {
+                          c.autoConnect = (c == conn && !c.autoConnect);
+                        }
+                        settings.save();
+                      });
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Text(conn.username == '' ? conn.url : '${conn.username}@${conn.url}')),
+                ]),
                 key: Key(conn.hashCode.toString()),
                 onTap: () {
                   Navigator.push(
