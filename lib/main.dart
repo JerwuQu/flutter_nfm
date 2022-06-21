@@ -353,6 +353,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
             Icon(entry.type == NfmEntryType.file ? Icons.file_copy : Icons.folder),
             const SizedBox(width: 6),
             Expanded(child: Text(entry.title)),
+            const SizedBox(width: 16),
           ]),
     );
   }
