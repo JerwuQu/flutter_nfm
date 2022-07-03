@@ -18,17 +18,10 @@ class NfmEntry {
 
   NfmEntry(this.type, this.title, String path) : path = _normalizePath(type, path);
 
-  NfmEntry.fromBookmarkJson(Map<String, dynamic> json)
+  NfmEntry.fromBookmarkPath(String path)
       : type = NfmEntryType.dir,
-        title = endingSlash(json['path']),
-        path = _normalizePath(NfmEntryType.dir, json['path']);
-
-  toBookmarkJson() {
-    if (type != NfmEntryType.dir) {
-      throw NfmException('Not a directory');
-    }
-    return {'path': path};
-  }
+        title = endingSlash(path),
+        path = _normalizePath(NfmEntryType.dir, path);
 
   NfmEntry toBookmark() {
     if (type != NfmEntryType.dir) {

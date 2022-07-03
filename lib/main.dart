@@ -1,20 +1,19 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_nfm/storage.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:jwq_utils/jwq_utils.dart';
 import 'package:shlex/shlex.dart' as shlex;
 
 import 'nfm.dart';
 
-var settings = SettingManager();
 final GlobalKey<ScaffoldMessengerState> scaffoldKey = GlobalKey<ScaffoldMessengerState>();
 
 void main() async {
-  await settings.load();
+  sqfliteFfiInit();
   runApp(const MyApp());
 }
 
@@ -34,121 +33,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class ConnectionInfo {
-  String url, username, password;
-  List<NfmEntry> bookmarks;
-  late Set<String> _bookmarkPaths;
-  Set<String> history;
-  bool autoConnect;
-
-  ConnectionInfo.empty()
-      : url = '',
-        username = '',
-        password = '',
-        bookmarks = [],
-        _bookmarkPaths = {},
-        history = {},
-        autoConnect = false;
-  ConnectionInfo.fromJson(Map<String, dynamic> json)
-      : url = json['url'],
-        username = json['username'],
-        password = json['password'],
-        bookmarks = ((json['bookmarks'] ?? []) as List<dynamic>)
-            .map((e) => NfmEntry.fromBookmarkJson(e))
-            .toList(),
-        history =
-            ((json['history'] ?? []) as List<dynamic>).map<String>((e) => e as String).toSet(),
-        autoConnect = json['auto'] ?? false {
-    _bookmarkPaths = bookmarks.map<String>((b) => b.path).toSet();
-  }
-  toJson() => {
-        'url': url,
-        'username': username,
-        'password': password,
-        'bookmarks': bookmarks.map((e) => e.toBookmarkJson()).toList(),
-        'history': history.toList(),
-        'auto': autoConnect,
-      };
-
-  bool isBookmarked(NfmEntry entry) => _bookmarkPaths.contains(entry.path);
-  void toggleBookmark(NfmEntry entry) {
-    if (isBookmarked(entry)) {
-      bookmarks.removeWhere((e) => e.path == entry.path);
-      _bookmarkPaths.remove(entry.path);
-    } else {
-      bookmarks.add(entry.toBookmark());
-      _bookmarkPaths.add(entry.path);
-    }
-    settings.save();
-  }
-
-  bool isInHistory(NfmEntry entry) => history.contains(entry.path);
-  void addToHistory(NfmEntry entry) {
-    history.add(entry.path);
-    settings.save();
-  }
-
-  void removeFromHistory(NfmEntry entry) {
-    history.remove(entry.path);
-    settings.save();
-  }
-}
-
-class EntryCommandAction {
-  String title, command;
-  bool addToHistory, toastOutput, copyOutputToClipboard;
-
-  EntryCommandAction()
-      : title = '',
-        command = '',
-        addToHistory = true,
-        toastOutput = false,
-        copyOutputToClipboard = false;
-
-  EntryCommandAction.fromJson(Map<String, dynamic> json)
-      : title = json['title'],
-        command = json['command'],
-        addToHistory = json['addToHistory'],
-        toastOutput = json['toastOutput'],
-        copyOutputToClipboard = json['clipboardOutput'];
-  toJson() => {
-        'title': title,
-        'command': command,
-        'addToHistory': addToHistory,
-        'toastOutput': toastOutput,
-        'clipboardOutput': copyOutputToClipboard,
-      };
-}
-
-class SettingManager {
-  // TODO: support storing connections encrypted
-
-  late List<ConnectionInfo> connections;
-  late List<EntryCommandAction> actions;
-
-  Future load() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    final connectionsJson = jsonDecode(prefs.getString('connections') ?? '[]');
-    connections =
-        connectionsJson.map<ConnectionInfo>((json) => ConnectionInfo.fromJson(json)).toList();
-
-    final actionsJson = jsonDecode(prefs.getString('actions') ?? '[]');
-    actions =
-        actionsJson.map<EntryCommandAction>((json) => EntryCommandAction.fromJson(json)).toList();
-  }
-
-  Future save() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    final connectionsJson = jsonEncode(connections.map((c) => c.toJson()).toList());
-    await prefs.setString('connections', connectionsJson);
-
-    final actionsJson = jsonEncode(actions.map((a) => a.toJson()).toList());
-    await prefs.setString('actions', actionsJson);
-  }
-}
-
 class ConnectionListPage extends StatefulWidget {
   const ConnectionListPage({Key? key}) : super(key: key);
 
@@ -157,24 +41,29 @@ class ConnectionListPage extends StatefulWidget {
 }
 
 class ConnectionListPageState extends State<ConnectionListPage> {
+  List<Connection> connections = [];
+
   @override
   void initState() {
     super.initState();
-    final autoConn = settings.connections.firstWhereOrNull((c) => c.autoConnect);
-    if (autoConn != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (ctx) => ConnectionPage(autoConn)),
-        );
+    getConnections().then((cons) {
+      setState(() {
+        connections = cons;
       });
-    }
+      final autoConn = cons.firstWhereOrNull((c) => c.autoConnect);
+      if (autoConn != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (ctx) => ConnectionPage(autoConn)),
+          );
+        });
+      }
+    });
   }
 
-  Future editConnection([int? index]) async {
-    ConnectionInfo conn = index == null
-        ? ConnectionInfo.empty()
-        : ConnectionInfo.fromJson(settings.connections[index].toJson());
+  Future editConnection([Connection? sourceConn]) async {
+    Connection conn = sourceConn == null ? Connection() : Connection.fromMap(sourceConn.toMap());
     await showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -211,21 +100,15 @@ class ConnectionListPageState extends State<ConnectionListPage> {
                     children: <Widget>[
                           TextButton(
                             style: elevatedButtonStyle(context),
-                            onPressed: () {
-                              setState(() {
-                                if (index == null) {
-                                  settings.connections.add(conn);
-                                } else {
-                                  settings.connections[index] = conn;
-                                }
-                                settings.save();
-                              });
-                              return Navigator.of(context).pop();
+                            onPressed: () async {
+                              await conn.insertUpdate();
+                              if (!mounted) return;
+                              Navigator.of(context).pop();
                             },
                             child: const Text('Save'),
                           ),
                         ] +
-                        (index == null
+                        (conn.id == null
                             ? []
                             : [
                                 const SizedBox(width: 40),
@@ -233,10 +116,8 @@ class ConnectionListPageState extends State<ConnectionListPage> {
                                   style: elevatedButtonStyle(context, color: Colors.red),
                                   onPressed: () async {
                                     if (await confirm(context)) {
-                                      setState(() {
-                                        settings.connections.removeAt(index);
-                                        settings.save();
-                                      });
+                                      await conn.delete();
+                                      if (!mounted) return;
                                       Navigator.of(context).pop();
                                     }
                                   },
@@ -266,11 +147,12 @@ class ConnectionListPageState extends State<ConnectionListPage> {
             newIndex--;
           }
           setState(() {
-            final item = settings.connections.removeAt(oldIndex);
-            settings.connections.insert(newIndex, item);
+            final item = connections.removeAt(oldIndex);
+            connections.insert(newIndex, item);
           });
+          reorderConnections(connections);
         },
-        children: settings.connections
+        children: connections
             .mapIndexed<Widget>(
               (index, conn) => ListTile(
                 title: Row(children: [
@@ -279,13 +161,9 @@ class ConnectionListPageState extends State<ConnectionListPage> {
                         ? const Icon(Icons.auto_awesome)
                         : const Icon(Icons.auto_awesome_outlined),
                     color: conn.autoConnect ? Colors.orange : Colors.grey,
-                    onPressed: () {
-                      setState(() {
-                        for (var c in settings.connections) {
-                          c.autoConnect = (c == conn && !c.autoConnect);
-                        }
-                        settings.save();
-                      });
+                    onPressed: () async {
+                      await conn.toggleAutoConnect();
+                      setState(() {});
                     },
                   ),
                   const SizedBox(width: 8),
@@ -299,13 +177,25 @@ class ConnectionListPageState extends State<ConnectionListPage> {
                     MaterialPageRoute(builder: (ctx) => ConnectionPage(conn)),
                   );
                 },
-                onLongPress: () => editConnection(index),
+                onLongPress: () async {
+                  await editConnection(conn);
+                  final newConnections = await getConnections();
+                  setState(() {
+                    connections = newConnections;
+                  });
+                },
               ),
             )
             .toList(),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => editConnection(),
+        onPressed: () async {
+          await editConnection();
+          final newConnections = await getConnections();
+          setState(() {
+            connections = newConnections;
+          });
+        },
         child: const Icon(Icons.add),
       ),
     );
@@ -313,7 +203,7 @@ class ConnectionListPageState extends State<ConnectionListPage> {
 }
 
 class ConnectionPage extends StatefulWidget {
-  final ConnectionInfo conn;
+  final Connection conn;
 
   const ConnectionPage(this.conn, {Key? key}) : super(key: key);
 
@@ -324,24 +214,66 @@ class ConnectionPage extends StatefulWidget {
 class _ConnectionPageState extends State<ConnectionPage> {
   late Nfm nfm;
   String entryPath = '/'; // TODO: make this into breadcrumbs instead
-  late Future<List<NfmEntry>> entries;
+  Future<void> loadingFuture = Future.value();
+  List<NfmEntry> entries = [];
+  Set<String> pathHistorySet = {};
+  List<String> bookmarks = [];
+  Set<String> bookmarkSet = {};
+  List<EntryCommandAction> actions = [];
 
   @override
   void initState() {
     super.initState();
     nfm = Nfm(widget.conn.url, widget.conn.username, widget.conn.password);
-    entries = nfm.fetch();
+    fetchEntries();
+    getActions().then((acs) {
+      setState(() {
+        actions = acs;
+      });
+    });
+    refreshBookmarks();
+  }
+
+  void refreshBookmarks() {
+    widget.conn.getBookmarks().then((bms) {
+      setState(() {
+        bookmarks = bms;
+        bookmarkSet = bms.toSet();
+      });
+    });
+  }
+
+  Future refreshHistory() async {
+    final lPathHistorySet =
+        await widget.conn.historySet(entries.map<String>((e) => e.path).toList());
+    setState(() {
+      pathHistorySet = lPathHistorySet;
+    });
+  }
+
+  void fetchEntries([NfmEntry? entry]) {
+    setState(() {
+      loadingFuture = () async {
+        final lEntries = await nfm.fetch(entry);
+        setState(() {
+          entries = lEntries;
+        });
+        await refreshHistory();
+      }();
+    });
   }
 
   Widget entryRow(NfmEntry entry) {
-    final bookmarked = widget.conn.isBookmarked(entry);
     List<Widget> bookmarkBtn = (entry.type == NfmEntryType.dir)
         ? [
             IconButton(
-              icon: bookmarked ? const Icon(Icons.star) : const Icon(Icons.star_outline),
-              color: bookmarked ? Colors.orange : Colors.grey,
-              onPressed: () {
-                setState(() => widget.conn.toggleBookmark(entry));
+              icon: bookmarkSet.contains(entry.path)
+                  ? const Icon(Icons.star)
+                  : const Icon(Icons.star_outline),
+              color: bookmarkSet.contains(entry.path) ? Colors.orange : Colors.grey,
+              onPressed: () async {
+                await widget.conn.bookmarkToggle(entry.path);
+                refreshBookmarks();
               },
             ),
             const SizedBox(width: 6),
@@ -358,10 +290,10 @@ class _ConnectionPageState extends State<ConnectionPage> {
     );
   }
 
-  Future editActionDialog([int? index]) async {
-    EntryCommandAction? action = index == null
+  Future editActionDialog([EntryCommandAction? sourceAction]) async {
+    EntryCommandAction action = sourceAction == null
         ? EntryCommandAction()
-        : EntryCommandAction.fromJson(settings.actions[index].toJson());
+        : EntryCommandAction.fromMap(sourceAction.toMap());
     await showDialog(
       context: context,
       builder: (context) {
@@ -402,10 +334,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
                     ),
                     CheckboxListTile(
                       title: const Text('Copy output to clipboard'),
-                      value: action.copyOutputToClipboard,
+                      value: action.clipboardOutput,
                       controlAffinity: ListTileControlAffinity.leading,
-                      onChanged: (val) =>
-                          setState(() => action.copyOutputToClipboard = val ?? false),
+                      onChanged: (val) => setState(() => action.clipboardOutput = val ?? false),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -413,26 +344,20 @@ class _ConnectionPageState extends State<ConnectionPage> {
                         children: <Widget>[
                               TextButton(
                                 style: elevatedButtonStyle(context),
-                                onPressed: () {
+                                onPressed: () async {
                                   if (action.title.isEmpty || action.command.isEmpty) {
                                     showError(context, 'Invalid action',
                                         'Title and Command are required');
                                     return;
                                   }
-                                  setState(() {
-                                    if (index == null) {
-                                      settings.actions.add(action);
-                                    } else {
-                                      settings.actions[index] = action;
-                                    }
-                                    settings.save();
-                                    Navigator.of(context).pop();
-                                  });
+                                  await action.insertUpdate();
+                                  if (!mounted) return;
+                                  Navigator.of(context).pop();
                                 },
                                 child: const Text('Save'),
                               ),
                             ] +
-                            (index == null
+                            (sourceAction == null
                                 ? []
                                 : [
                                     const SizedBox(width: 8),
@@ -440,11 +365,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
                                       style: elevatedButtonStyle(context, color: Colors.red),
                                       onPressed: () async {
                                         if (await confirm(context)) {
-                                          setState(() {
-                                            settings.actions.removeAt(index);
-                                            settings.save();
-                                            Navigator.of(context).pop();
-                                          });
+                                          await action.delete();
+                                          if (!mounted) return;
+                                          Navigator.of(context).pop();
                                         }
                                       },
                                       child: const Text('Delete'),
@@ -473,7 +396,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                 children: [
                   ListView(
                       shrinkWrap: true,
-                      children: settings.actions
+                      children: actions
                               .mapIndexed<Widget>(
                                 (index, action) => ListTile(
                                   title: Row(children: [
@@ -481,8 +404,12 @@ class _ConnectionPageState extends State<ConnectionPage> {
                                         child: Text(action.title,
                                             style: const TextStyle(color: Colors.blue))),
                                     IconButton(
-                                      onPressed: () {
-                                        editActionDialog(index).then((_) => setState(() {}));
+                                      onPressed: () async {
+                                        await editActionDialog(action);
+                                        final newActions = await getActions();
+                                        setState(() {
+                                          actions = newActions;
+                                        });
                                       },
                                       icon: const Icon(Icons.edit),
                                     ),
@@ -506,25 +433,31 @@ class _ConnectionPageState extends State<ConnectionPage> {
                                         scaffoldKey.currentState
                                             ?.showSnackBar(SnackBar(content: Text(r.stdout)));
                                       }
-                                      if (action.copyOutputToClipboard) {
+                                      if (action.clipboardOutput) {
                                         Clipboard.setData(ClipboardData(text: r.stdout));
                                         if (!action.toastOutput) {
                                           scaffoldKey.currentState?.showSnackBar(const SnackBar(
                                               content: Text('Result copied to clipboard')));
                                         }
                                       }
-                                      if (!action.toastOutput && !action.copyOutputToClipboard) {
+                                      if (!action.toastOutput && !action.clipboardOutput) {
                                         scaffoldKey.currentState?.showSnackBar(const SnackBar(
                                             content: Text('Process exited successfully')));
                                       }
                                     });
                                     if (action.addToHistory) {
-                                      setState(() => widget.conn.addToHistory(entry));
+                                      widget.conn
+                                          .historyAdd(entry.path)
+                                          .then((_) => refreshHistory());
                                     }
                                     Navigator.of(context).pop();
                                   },
-                                  onLongPress: () {
-                                    editActionDialog(index).then((_) => setState(() {}));
+                                  onLongPress: () async {
+                                    await editActionDialog(action);
+                                    final newActions = await getActions();
+                                    setState(() {
+                                      actions = newActions;
+                                    });
                                   },
                                 ),
                               )
@@ -542,31 +475,35 @@ class _ConnectionPageState extends State<ConnectionPage> {
                             ),
                             ListTile(
                               title: const Text('Add action'),
-                              onTap: () {
-                                editActionDialog(null).then((_) => setState(() {}));
+                              onTap: () async {
+                                await editActionDialog();
+                                final newActions = await getActions();
+                                setState(() {
+                                  actions = newActions;
+                                });
                               },
                             ),
                           ] +
-                          (widget.conn.isInHistory(entry)
+                          (pathHistorySet.contains(entry.path)
                               ? [
                                   ListTile(
                                     title: const Text('Remove from history'),
-                                    onTap: () {
-                                      setState(() {
-                                        widget.conn.removeFromHistory(entry);
-                                        Navigator.of(context).pop();
-                                      });
+                                    onTap: () async {
+                                      await widget.conn.historyRemove(entry.path);
+                                      refreshHistory();
+                                      if (!mounted) return;
+                                      Navigator.of(context).pop();
                                     },
                                   )
                                 ]
                               : [
                                   ListTile(
                                     title: const Text('Add to history'),
-                                    onTap: () {
-                                      setState(() {
-                                        widget.conn.addToHistory(entry);
-                                        Navigator.of(context).pop();
-                                      });
+                                    onTap: () async {
+                                      await widget.conn.historyAdd(entry.path);
+                                      refreshHistory();
+                                      if (!mounted) return;
+                                      Navigator.of(context).pop();
                                     },
                                   )
                                 ])),
@@ -581,8 +518,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<NfmEntry>>(
-      future: entries,
+    return FutureBuilder<void>(
+      future: loadingFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Scaffold(
@@ -598,39 +535,31 @@ class _ConnectionPageState extends State<ConnectionPage> {
                 newIndex--;
               }
               setState(() {
-                final item = widget.conn.bookmarks.removeAt(oldIndex);
-                widget.conn.bookmarks.insert(newIndex, item);
-                settings.save();
+                final item = bookmarks.removeAt(oldIndex);
+                bookmarks.insert(newIndex, item);
               });
+              widget.conn.bookmarksReorder(bookmarks);
             },
             scrollController: AdjustableScrollController(100),
             children: [
-              for (final bookmark in widget.conn.bookmarks)
+              for (final bookmark in bookmarks)
                 ListTile(
-                  key: Key(bookmark.path),
-                  title: entryRow(bookmark),
-                  onTap: () {
-                    setState(() {
-                      entryPath = bookmark.path;
-                      entries = nfm.fetch(bookmark);
-                    });
-                  },
+                  key: Key(bookmark),
+                  title: entryRow(NfmEntry.fromBookmarkPath(bookmark)),
+                  onTap: () => fetchEntries(NfmEntry.fromBookmarkPath(bookmark)),
                 ),
             ],
           ),
           body: ListView(
             controller: AdjustableScrollController(100),
             children: [
-              for (final entry in snapshot.data!)
+              for (final entry in entries)
                 ListTile(
                   title: entryRow(entry),
-                  tileColor: widget.conn.isInHistory(entry) ? Colors.green : null,
+                  tileColor: pathHistorySet.contains(entry.path) ? Colors.green : null,
                   onTap: () {
                     if (entry.type == NfmEntryType.dir) {
-                      setState(() {
-                        entryPath = entry.path;
-                        entries = nfm.fetch(entry);
-                      });
+                      fetchEntries(entry);
                     } else {
                       actionDialog(entry).then((_) => setState(() {}));
                     }
