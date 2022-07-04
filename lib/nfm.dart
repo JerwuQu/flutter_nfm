@@ -94,7 +94,7 @@ class Nfm {
           entry == null ? e['name'] : joinPaths(entry.path, e['name']),
         );
       }).toList();
-      if (entry?.path.isEmpty ?? true) {
+      if ((entry?.path.isEmpty ?? true) || entry?.path == '/') {
         return entries;
       } else {
         return [NfmEntry(NfmEntryType.dir, '..', removePathSegment(entry!.path))] + entries;
