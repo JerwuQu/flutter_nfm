@@ -394,75 +394,88 @@ class _ConnectionPageState extends State<ConnectionPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  ReorderableListView(
+                    shrinkWrap: true,
+                    onReorder: (oldIndex, newIndex) {
+                      if (oldIndex < newIndex) {
+                        newIndex--;
+                      }
+                      setState(() {
+                        final item = actions.removeAt(oldIndex);
+                        actions.insert(newIndex, item);
+                      });
+                      reorderActions(actions);
+                    },
+                    children: actions
+                        .mapIndexed<Widget>(
+                          (index, action) => ListTile(
+                            key: Key(action.id?.toString() ?? action.title),
+                            title: Row(children: [
+                              Expanded(
+                                  child: Text(action.title,
+                                      style: const TextStyle(color: Colors.blue))),
+                              IconButton(
+                                onPressed: () async {
+                                  await editActionDialog(action);
+                                  final newActions = await getActions();
+                                  setState(() {
+                                    actions = newActions;
+                                  });
+                                },
+                                icon: const Icon(Icons.edit),
+                              ),
+                              const SizedBox(width: 16),
+                            ]),
+                            onTap: () {
+                              final url = nfm.authedEntryUrl(entry).toString();
+                              final args = shlex.split(action.command);
+                              args.forEachIndexed((i, str) {
+                                if (str == '\$URL') {
+                                  args[i] = url;
+                                } else if (str == '\$PATH') {
+                                  args[i] = entry.path;
+                                }
+                              });
+                              Process.run(args[0], args.slice(1), runInShell: true).then((r) {
+                                if (r.exitCode != 0) {
+                                  showError(context, "Process returned non-zero", r.stdout);
+                                  return;
+                                }
+                                if (action.toastOutput) {
+                                  scaffoldKey.currentState
+                                      ?.showSnackBar(SnackBar(content: Text(r.stdout)));
+                                }
+                                if (action.clipboardOutput) {
+                                  Clipboard.setData(ClipboardData(text: r.stdout));
+                                  if (!action.toastOutput) {
+                                    scaffoldKey.currentState?.showSnackBar(const SnackBar(
+                                        content: Text('Result copied to clipboard')));
+                                  }
+                                }
+                                if (!action.toastOutput && !action.clipboardOutput) {
+                                  scaffoldKey.currentState?.showSnackBar(
+                                      const SnackBar(content: Text('Process exited successfully')));
+                                }
+                              });
+                              if (action.addToHistory) {
+                                widget.conn.historyAdd(entry.path).then((_) => refreshHistory());
+                              }
+                              Navigator.of(context).pop();
+                            },
+                            onLongPress: () async {
+                              await editActionDialog(action);
+                              final newActions = await getActions();
+                              setState(() {
+                                actions = newActions;
+                              });
+                            },
+                          ),
+                        )
+                        .toList(),
+                  ),
                   ListView(
                       shrinkWrap: true,
-                      children: actions
-                              .mapIndexed<Widget>(
-                                (index, action) => ListTile(
-                                  title: Row(children: [
-                                    Expanded(
-                                        child: Text(action.title,
-                                            style: const TextStyle(color: Colors.blue))),
-                                    IconButton(
-                                      onPressed: () async {
-                                        await editActionDialog(action);
-                                        final newActions = await getActions();
-                                        setState(() {
-                                          actions = newActions;
-                                        });
-                                      },
-                                      icon: const Icon(Icons.edit),
-                                    ),
-                                  ]),
-                                  onTap: () {
-                                    final url = nfm.authedEntryUrl(entry).toString();
-                                    final args = shlex.split(action.command);
-                                    args.forEachIndexed((i, str) {
-                                      if (str == '\$URL') {
-                                        args[i] = url;
-                                      } else if (str == '\$PATH') {
-                                        args[i] = entry.path;
-                                      }
-                                    });
-                                    Process.run(args[0], args.slice(1), runInShell: true).then((r) {
-                                      if (r.exitCode != 0) {
-                                        showError(context, "Process returned non-zero", r.stdout);
-                                        return;
-                                      }
-                                      if (action.toastOutput) {
-                                        scaffoldKey.currentState
-                                            ?.showSnackBar(SnackBar(content: Text(r.stdout)));
-                                      }
-                                      if (action.clipboardOutput) {
-                                        Clipboard.setData(ClipboardData(text: r.stdout));
-                                        if (!action.toastOutput) {
-                                          scaffoldKey.currentState?.showSnackBar(const SnackBar(
-                                              content: Text('Result copied to clipboard')));
-                                        }
-                                      }
-                                      if (!action.toastOutput && !action.clipboardOutput) {
-                                        scaffoldKey.currentState?.showSnackBar(const SnackBar(
-                                            content: Text('Process exited successfully')));
-                                      }
-                                    });
-                                    if (action.addToHistory) {
-                                      widget.conn
-                                          .historyAdd(entry.path)
-                                          .then((_) => refreshHistory());
-                                    }
-                                    Navigator.of(context).pop();
-                                  },
-                                  onLongPress: () async {
-                                    await editActionDialog(action);
-                                    final newActions = await getActions();
-                                    setState(() {
-                                      actions = newActions;
-                                    });
-                                  },
-                                ),
-                              )
-                              .toList() +
-                          [
+                      children: [
                             ListTile(
                               title: const Text('Copy URL to clipboard'),
                               onTap: () {

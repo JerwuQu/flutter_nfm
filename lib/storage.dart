@@ -272,7 +272,7 @@ Future<List<EntryCommandAction>> getActions() async {
       .toList();
 }
 
-Future<void> reorderActions(List<Connection> actions) async {
+Future<void> reorderActions(List<EntryCommandAction> actions) async {
   final batch = (await database).batch();
   actions.forEachIndexed((i, a) {
     assert(a.id != null);
