@@ -226,28 +226,29 @@ class _ConnectionPageState extends State<ConnectionPage> {
     super.initState();
     nfm = Nfm(widget.conn.url, widget.conn.username, widget.conn.password);
     fetchEntries();
-    getActions().then((acs) {
-      setState(() {
-        actions = acs;
-      });
-    });
+    refreshActions(setState);
     refreshBookmarks();
   }
 
-  void refreshBookmarks() {
-    widget.conn.getBookmarks().then((bms) {
-      setState(() {
-        bookmarks = bms;
-        bookmarkSet = bms.toSet();
-      });
+  Future refreshBookmarks() async {
+    final newBookmarks = await widget.conn.getBookmarks();
+    setState(() {
+      bookmarks = newBookmarks;
+      bookmarkSet = newBookmarks.toSet();
     });
   }
 
   Future refreshHistory() async {
-    final lPathHistorySet =
-        await widget.conn.historySet(entries.map<String>((e) => e.path).toList());
+    final newHistorySet = await widget.conn.historySet(entries.map<String>((e) => e.path).toList());
     setState(() {
-      pathHistorySet = lPathHistorySet;
+      pathHistorySet = newHistorySet;
+    });
+  }
+
+  Future refreshActions(void Function(void Function()) setState) async {
+    final newActions = await getActions();
+    setState(() {
+      actions = newActions;
     });
   }
 
@@ -271,9 +272,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
                   ? const Icon(Icons.star)
                   : const Icon(Icons.star_outline),
               color: bookmarkSet.contains(entry.path) ? Colors.orange : Colors.grey,
-              onPressed: () async {
-                await widget.conn.bookmarkToggle(entry.path);
-                refreshBookmarks();
+              onPressed: () {
+                widget.conn.bookmarkToggle(entry.path).then((_) => refreshBookmarks());
               },
             ),
             const SizedBox(width: 6),
@@ -383,6 +383,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
     );
   }
 
+  // TODO: move `actionDialog` to a separate widget (along with `editActionDialog` and `refreshActions`)
   Future actionDialog(NfmEntry entry) async {
     await showDialog(
       context: context,
@@ -415,12 +416,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
                                   child: Text(action.title,
                                       style: const TextStyle(color: Colors.blue))),
                               IconButton(
-                                onPressed: () async {
-                                  await editActionDialog(action);
-                                  final newActions = await getActions();
-                                  setState(() {
-                                    actions = newActions;
-                                  });
+                                onPressed: () {
+                                  editActionDialog(action).then((_) => refreshActions(setState));
                                 },
                                 icon: const Icon(Icons.edit),
                               ),
@@ -462,64 +459,49 @@ class _ConnectionPageState extends State<ConnectionPage> {
                               }
                               Navigator.of(context).pop();
                             },
-                            onLongPress: () async {
-                              await editActionDialog(action);
-                              final newActions = await getActions();
-                              setState(() {
-                                actions = newActions;
-                              });
+                            onLongPress: () {
+                              editActionDialog(action).then((_) => refreshActions(setState));
                             },
                           ),
                         )
                         .toList(),
                   ),
                   ListView(
-                      shrinkWrap: true,
-                      children: [
-                            ListTile(
-                              title: const Text('Copy URL to clipboard'),
+                    shrinkWrap: true,
+                    children: [
+                      ListTile(
+                        title: const Text('Copy URL to clipboard'),
+                        onTap: () {
+                          Clipboard.setData(
+                              ClipboardData(text: nfm.authedEntryUrl(entry).toString()));
+                          scaffoldKey.currentState?.showSnackBar(
+                              const SnackBar(content: Text('URL copied to clipboard')));
+                          Navigator.of(context).pop();
+                        },
+                      ),
+                      ListTile(
+                        title: const Text('Add action'),
+                        onTap: () {
+                          editActionDialog().then((_) => refreshActions(setState));
+                        },
+                      ),
+                      (pathHistorySet.contains(entry.path)
+                          ? ListTile(
+                              title: const Text('Remove from history'),
                               onTap: () {
-                                Clipboard.setData(
-                                    ClipboardData(text: nfm.authedEntryUrl(entry).toString()));
-                                scaffoldKey.currentState?.showSnackBar(
-                                    const SnackBar(content: Text('URL copied to clipboard')));
+                                widget.conn.historyRemove(entry.path).then((_) => refreshHistory());
                                 Navigator.of(context).pop();
                               },
-                            ),
-                            ListTile(
-                              title: const Text('Add action'),
-                              onTap: () async {
-                                await editActionDialog();
-                                final newActions = await getActions();
-                                setState(() {
-                                  actions = newActions;
-                                });
+                            )
+                          : ListTile(
+                              title: const Text('Add to history'),
+                              onTap: () {
+                                widget.conn.historyAdd(entry.path).then((_) => refreshHistory());
+                                Navigator.of(context).pop();
                               },
-                            ),
-                          ] +
-                          (pathHistorySet.contains(entry.path)
-                              ? [
-                                  ListTile(
-                                    title: const Text('Remove from history'),
-                                    onTap: () async {
-                                      await widget.conn.historyRemove(entry.path);
-                                      refreshHistory();
-                                      if (!mounted) return;
-                                      Navigator.of(context).pop();
-                                    },
-                                  )
-                                ]
-                              : [
-                                  ListTile(
-                                    title: const Text('Add to history'),
-                                    onTap: () async {
-                                      await widget.conn.historyAdd(entry.path);
-                                      refreshHistory();
-                                      if (!mounted) return;
-                                      Navigator.of(context).pop();
-                                    },
-                                  )
-                                ])),
+                            ))
+                    ],
+                  )
                 ],
               ),
             ),
