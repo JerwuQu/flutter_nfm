@@ -21,3 +21,9 @@ jobs:
       with:
         name: windows-release
         path: build/windows/runner/Release/
+    - run: flutter build apk
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: apk-release
+        path: build/app/outputs/flutter-apk/app-release.apk
