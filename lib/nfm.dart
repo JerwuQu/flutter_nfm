@@ -66,16 +66,14 @@ class Nfm {
     if (entry != null && entry.type != NfmEntryType.dir) {
       throw NfmException('Not a directory');
     }
+    entry ??= NfmEntry(NfmEntryType.dir, '', '');
     Map<String, String> headers = {
       'user-agent': 'nfm',
       'content-type': 'application/json',
     };
     Response resp;
     try {
-      resp = await http.get(
-        authedEntryUrl(entry ?? NfmEntry(NfmEntryType.dir, '', '')),
-        headers: headers,
-      );
+      resp = await http.get(authedEntryUrl(entry), headers: headers);
     } catch (e) {
       throw NfmException('Failed to connect to host');
     }
@@ -94,10 +92,17 @@ class Nfm {
           entry == null ? e['name'] : joinPaths(entry.path, e['name']),
         );
       }).toList();
-      if ((entry?.path.isEmpty ?? true) || entry?.path == '/') {
-        return entries;
+      if (entry.path.isEmpty || entry.path == '/') {
+        return [
+              NfmEntry(NfmEntryType.dir, '.', entry.path),
+            ] +
+            entries;
       } else {
-        return [NfmEntry(NfmEntryType.dir, '..', removePathSegment(entry!.path))] + entries;
+        return [
+              NfmEntry(NfmEntryType.dir, '.', entry.path),
+              NfmEntry(NfmEntryType.dir, '..', removePathSegment(entry.path)),
+            ] +
+            entries;
       }
     } catch (e) {
       throw NfmException('Invalid response. Not a valid JSON index url?');
