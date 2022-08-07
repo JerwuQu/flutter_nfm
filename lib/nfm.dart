@@ -84,7 +84,7 @@ class Nfm {
     }
 
     try {
-      List<dynamic> res = jsonDecode(resp.body);
+      List<dynamic> res = jsonDecode(const Utf8Decoder().convert(resp.bodyBytes));
       final entries = res.map((e) {
         return NfmEntry(
           e['type'] == 'directory' ? NfmEntryType.dir : NfmEntryType.file,
