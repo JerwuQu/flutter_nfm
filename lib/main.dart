@@ -541,30 +541,32 @@ class _ConnectionPageState extends State<ConnectionPage> {
         }
         return SplitView(
           title: Text(entryPath),
-          drawer: ReorderableListView(
-            onReorder: (oldIndex, newIndex) {
-              if (oldIndex < newIndex) {
-                newIndex--;
-              }
-              setState(() {
-                final item = bookmarks.removeAt(oldIndex);
-                bookmarks.insert(newIndex, item);
-              });
-              widget.conn.bookmarksReorder(bookmarks);
-            },
-            scrollController: AdjustableScrollController(100),
-            children: [
-              for (final bookmark in bookmarks)
-                ListTile(
-                  key: Key(bookmark),
-                  title: entryRow(NfmEntry.fromBookmarkPath(bookmark)),
-                  onTap: () {
-                    final entry = NfmEntry.fromBookmarkPath(bookmark);
-                    entryPath = entry.path;
-                    fetchEntries(entry);
-                  },
-                ),
-            ],
+          drawer: SafeArea(
+            child: ReorderableListView(
+              onReorder: (oldIndex, newIndex) {
+                if (oldIndex < newIndex) {
+                  newIndex--;
+                }
+                setState(() {
+                  final item = bookmarks.removeAt(oldIndex);
+                  bookmarks.insert(newIndex, item);
+                });
+                widget.conn.bookmarksReorder(bookmarks);
+              },
+              scrollController: AdjustableScrollController(100),
+              children: [
+                for (final bookmark in bookmarks)
+                  ListTile(
+                    key: Key(bookmark),
+                    title: entryRow(NfmEntry.fromBookmarkPath(bookmark)),
+                    onTap: () {
+                      final entry = NfmEntry.fromBookmarkPath(bookmark);
+                      entryPath = entry.path;
+                      fetchEntries(entry);
+                    },
+                  ),
+              ],
+            ),
           ),
           body: ListView(
             controller: AdjustableScrollController(100),
