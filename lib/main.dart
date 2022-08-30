@@ -7,6 +7,7 @@ import 'package:flutter_nfm/storage.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:jwq_utils/jwq_utils.dart';
 import 'package:shlex/shlex.dart' as shlex;
+import 'package:url_launcher/url_launcher.dart';
 
 import 'nfm.dart';
 
@@ -469,6 +470,15 @@ class _ConnectionPageState extends State<ConnectionPage> {
                   ListView(
                     shrinkWrap: true,
                     children: [
+                      ListTile(
+                        title: const Text('Open URL'),
+                        onTap: () async {
+                          await launchUrl(nfm.authedEntryUrl(entry),
+                              mode: LaunchMode.externalNonBrowserApplication);
+                          if (!mounted) return;
+                          Navigator.of(context).pop();
+                        },
+                      ),
                       ListTile(
                         title: const Text('Copy URL to clipboard'),
                         onTap: () {
