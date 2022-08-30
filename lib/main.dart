@@ -437,7 +437,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
                               });
                               Process.run(args[0], args.slice(1), runInShell: true).then((r) {
                                 if (r.exitCode != 0) {
-                                  showError(context, "Process returned non-zero", r.stdout);
+                                  showError(context, "Process returned non-zero (${r.exitCode})",
+                                      r.stdout + '\n' + r.stderr);
                                   return;
                                 }
                                 if (action.toastOutput) {
