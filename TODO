@@ -1,4 +1,3 @@
-- No error on invalid connection (random url shows empty without error)
 - Android: launch intent
 - Android: bookmarks bar is under status bar
 - Android: action bar shows wrong path

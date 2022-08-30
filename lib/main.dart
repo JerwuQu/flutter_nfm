@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -526,7 +527,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
     return FutureBuilder<void>(
       future: loadingFuture,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.hasError) {
+          var ex = snapshot.error as NfmException;
+          return Scaffold(
+            appBar: AppBar(title: const Text('Error')),
+            body: Center(child: Text(ex.message)),
+          );
+        } else if (snapshot.connectionState == ConnectionState.waiting) {
           return Scaffold(
             appBar: AppBar(title: const Text('Loading...')),
             body: const Center(child: CircularProgressIndicator()),
