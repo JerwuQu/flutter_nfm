@@ -528,7 +528,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
       future: loadingFuture,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          var ex = snapshot.error as NfmException;
+          final ex = snapshot.error as NfmException;
           return Scaffold(
             appBar: AppBar(title: const Text('Error')),
             body: Center(child: Text(ex.message)),
@@ -558,7 +558,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
                 ListTile(
                   key: Key(bookmark),
                   title: entryRow(NfmEntry.fromBookmarkPath(bookmark)),
-                  onTap: () => fetchEntries(NfmEntry.fromBookmarkPath(bookmark)),
+                  onTap: () {
+                    final entry = NfmEntry.fromBookmarkPath(bookmark);
+                    entryPath = entry.path;
+                    fetchEntries(entry);
+                  },
                 ),
             ],
           ),
@@ -571,6 +575,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                   tileColor: pathHistorySet.contains(entry.path) ? Colors.green : null,
                   onTap: () {
                     if (entry.type == NfmEntryType.dir) {
+                      entryPath = entry.path;
                       fetchEntries(entry);
                     } else {
                       actionDialog(entry).then((_) => setState(() {}));
